@@ -82,6 +82,10 @@ export class WhatsAppStore {
   }
 
   async save() {
+    if (this.pendingSave) {
+      clearTimeout(this.pendingSave);
+      this.pendingSave = null;
+    }
     this.data.meta.updatedAt = new Date().toISOString();
     const tempFile = path.join(
       path.dirname(this.filePath),

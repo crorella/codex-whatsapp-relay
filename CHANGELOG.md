@@ -2,6 +2,10 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.4.3-hardened.2] - 2026-07-21
+
+- Cancel a pending debounced metadata write when an explicit save begins, avoiding duplicate writes during shutdown and tests.
+
 ## [0.4.3-hardened.1] - 2026-07-21
 
 - Disable outbound URL previews and remove the vulnerable preview dependency.
