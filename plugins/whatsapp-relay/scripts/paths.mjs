@@ -9,7 +9,10 @@ export const dataDir = path.join(pluginRoot, "data");
 export const authDir = path.join(dataDir, "auth");
 export const storeFile = path.join(dataDir, "store.json");
 export const runtimeFile = path.join(dataDir, "runtime.json");
-export const credsFile = path.join(authDir, "creds.json");
+export const sessionDbFile =
+  process.env.WHATSAPP_SESSION_DB || path.join(authDir, "whatsmeow.db");
+export const credsFile = sessionDbFile;
+export const sidecarBinary = path.join(pluginRoot, "bin", "whatsmeow-sidecar");
 
 async function ensurePrivateDir(dirPath) {
   await fs.mkdir(dirPath, { recursive: true, mode: 0o700 });

@@ -33,6 +33,13 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.4.3-hardened.7-experimental.1] - 2026-07-22
+
+- Replace Baileys with a pinned Go `whatsmeow` sidecar for a controlled pairing experiment.
+- Disable automatic reconnect and refuse a second auth attempt in the same process.
+- Keep the five-tool MCP surface, volatile message bodies, explicit sends, and no URL previews.
+- Use private stdin/stdout pipes instead of a network listener and suppress sensitive child logs.
+
 ## [0.4.3] - 2026-03-30
 
 ### Fixed

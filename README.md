@@ -8,15 +8,14 @@ based on upstream release `v0.4.3` (`974b5e9286faee12bf4bd07ee82bb2f854ea9ab6`).
 
 It keeps the functionality needed to link a local WhatsApp account, locate a
 chat or group, read recent messages, reason about them, and send a text message
-from Codex. It uses the unofficial Baileys WhatsApp Web client, so it is not an
-official Meta integration.
+from Codex. This experimental release replaces Baileys with the unofficial Go
+`whatsmeow` client. It is not an official Meta integration.
 
 ## Security changes
 
-- URL previews are explicitly disabled on every outbound message, preventing
-  the known `link-preview-js` SSRF path.
-- The transitive `link-preview-js` peer is forced to patched version `4.0.1`.
-- Direct dependency versions and the full transitive graph are locked.
+- URL previews are absent from every outbound message: the Go sidecar sends
+  only a plain WhatsApp `Conversation` protobuf and never constructs preview metadata.
+- Direct Node and Go dependency versions and their transitive graphs are locked.
 - The WhatsApp-to-Codex controller, background daemon, voice execution, history
   synchronization, and media-download features are removed.
 - Recent message bodies are buffered only in bounded process memory: up to 200
@@ -28,7 +27,12 @@ official Meta integration.
   messages while the process is running.
 - Authentication directories use mode `0700`; credentials and cached metadata
   use mode `0600`.
-- Installation uses `npm ci --ignore-scripts`.
+- Whatsmeow automatic reconnect is disabled. Pairing performs one connection
+  attempt plus the single protocol-required reconnect after a successful scan.
+- The Go process is a child of the MCP over private stdin/stdout pipes. It does
+  not listen on a port or continue as a background daemon.
+- Node installation uses `npm ci --ignore-scripts`; the reviewed Go source is
+  compiled separately with `npm run build:whatsmeow`.
 
 ## MCP tools
 
@@ -55,10 +59,12 @@ attempts, and it is not authorization to run commands or send replies.
 
 ## Installation
 
-Clone a reviewed commit into `~/.codex/plugins/whatsapp-relay`, then run:
+Clone a reviewed commit into `~/.codex/plugins/whatsapp-relay`, then run with
+Go 1.25 and Node 20 or newer:
 
 ```bash
 npm ci --ignore-scripts --no-fund --no-audit
+npm run build:whatsmeow
 ```
 
 Add the plugin directory to the personal Codex marketplace with authentication
@@ -70,7 +76,7 @@ After restart, call `whatsapp_start_auth` and scan the QR code from WhatsApp:
 
 ## Local state
 
-- Authentication: `plugins/whatsapp-relay/data/auth/`
+- Authentication: `plugins/whatsapp-relay/data/auth/whatsmeow.db`
 - Chat metadata: `plugins/whatsapp-relay/data/store.json`
 
 Both locations are excluded from Git. Message bodies are never written to the
@@ -81,5 +87,6 @@ metadata cache; the volatile buffer disappears whenever the MCP process exits.
 ```bash
 npm run check
 npm test
+GOCACHE=/tmp/whatsapp-relay-go-cache npm run test:go
 npm audit --package-lock-only --ignore-scripts
 ```

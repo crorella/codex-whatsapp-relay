@@ -2,7 +2,6 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 
-import { sendTextMessage } from "./messaging.mjs";
 import { credsFile, storeFile } from "./paths.mjs";
 import { WhatsAppRuntime } from "./runtime.mjs";
 
@@ -63,7 +62,7 @@ function resolveChatOrError({ chatId, chatName }) {
 
 const server = new McpServer({
   name: "whatsapp-relay-hardened",
-  version: "0.4.3-hardened.6"
+  version: "0.4.3-hardened.7-experimental.1"
 });
 
 server.tool(
@@ -131,6 +130,9 @@ server.tool(
   },
   async ({ limit = 20, query, unreadOnly = false }) => {
     try {
+      if (runtime.summary().status === "connected") {
+        await runtime.refreshChats();
+      }
       const chats = runtime.store.listChats({ limit, query, unreadOnly });
       return textResult(
         chats.length ? chats.map(chatSummary).join("\n") : "No chats matched the requested filter."
@@ -186,8 +188,7 @@ server.tool(
   async ({ chatId, chatName, text }) => {
     try {
       const chat = resolveChatOrError({ chatId, chatName });
-      const socket = await runtime.ensureConnected();
-      await sendTextMessage(socket, chat.id, text);
+      await runtime.sendText(chat.id, text);
       return textResult(`Sent message to ${chat.displayName} (${chat.id}).`);
     } catch (error) {
       return textResult(error.message, { isError: true });
@@ -197,3 +198,7 @@ server.tool(
 
 const transport = new StdioServerTransport();
 await server.connect(transport);
+
+process.stdin.once("end", () => {
+  runtime.close().catch(() => {});
+});

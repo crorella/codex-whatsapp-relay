@@ -2,6 +2,7 @@ node_modules/
 plugins/whatsapp-relay/data/auth*/
 plugins/whatsapp-relay/data/store.json
 plugins/whatsapp-relay/data/runtime.json
+plugins/whatsapp-relay/bin/whatsmeow-sidecar
 
 npm-debug.log*
 .worktrees
