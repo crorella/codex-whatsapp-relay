@@ -57,7 +57,7 @@ function resolveChatOrError({ chatId, chatName }) {
 
 const server = new McpServer({
   name: "whatsapp-relay-hardened",
-  version: "0.4.3-hardened.3"
+  version: "0.4.3-hardened.4"
 });
 
 server.tool(

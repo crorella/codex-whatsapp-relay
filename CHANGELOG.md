@@ -2,6 +2,10 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.4.3-hardened.4] - 2026-07-21
+
+- Launch the MCP from Codex's cached plugin copy through a dependency-free shim that resolves the reviewed checkout under `CODEX_HOME`.
+
 ## [0.4.3-hardened.3] - 2026-07-21
 
 - Keep the Codex plugin manifest version aligned with the package and MCP server versions.

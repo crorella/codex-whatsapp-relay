@@ -4,7 +4,7 @@
       "type": "stdio",
       "command": "node",
       "args": [
-        "./plugins/whatsapp-relay/scripts/mcp-server.mjs"
+        "./scripts/mcp-launcher.mjs"
       ]
     }
   }
