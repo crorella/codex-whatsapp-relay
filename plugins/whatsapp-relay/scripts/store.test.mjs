@@ -75,6 +75,7 @@ test("volatile message buffers enforce per-chat, global, and text limits", async
       store.getMessages("b@g.us", 10).map((message) => message.id),
       ["b1", "b2"]
     );
+    await store.save();
   } finally {
     await fs.rm(tempDir, { recursive: true, force: true });
   }

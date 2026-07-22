@@ -2,6 +2,10 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.4.3-hardened.6] - 2026-07-21
+
+- Flush the bounded-buffer test's deferred metadata write before removing its temporary directory.
+
 ## [0.4.3-hardened.5] - 2026-07-21
 
 - Restore explicit reading of recent WhatsApp messages through a bounded, volatile in-memory buffer.
