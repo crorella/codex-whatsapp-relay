@@ -1,6 +1,10 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 
+const DEFAULT_MAX_MESSAGES_PER_CHAT = 200;
+const DEFAULT_MAX_MESSAGES_TOTAL = 5_000;
+const DEFAULT_MAX_TEXT_CHARS = 16_000;
+
 function emptyStore() {
   return {
     meta: {
@@ -32,6 +36,65 @@ function normalizeTimestamp(value) {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
+export function unwrapMessage(message) {
+  if (!message) {
+    return null;
+  }
+  if (message.ephemeralMessage?.message) {
+    return unwrapMessage(message.ephemeralMessage.message);
+  }
+  if (message.viewOnceMessage?.message) {
+    return unwrapMessage(message.viewOnceMessage.message);
+  }
+  if (message.viewOnceMessageV2?.message) {
+    return unwrapMessage(message.viewOnceMessageV2.message);
+  }
+  if (message.documentWithCaptionMessage?.message) {
+    return unwrapMessage(message.documentWithCaptionMessage.message);
+  }
+  return message;
+}
+
+export function extractMessageText(message) {
+  const payload = unwrapMessage(message);
+  if (!payload) {
+    return "";
+  }
+  if (typeof payload.conversation === "string") {
+    return payload.conversation;
+  }
+  if (typeof payload.extendedTextMessage?.text === "string") {
+    return payload.extendedTextMessage.text;
+  }
+  if (typeof payload.imageMessage?.caption === "string") {
+    return payload.imageMessage.caption;
+  }
+  if (typeof payload.videoMessage?.caption === "string") {
+    return payload.videoMessage.caption;
+  }
+  if (typeof payload.documentMessage?.caption === "string") {
+    return payload.documentMessage.caption;
+  }
+  if (typeof payload.buttonsResponseMessage?.selectedDisplayText === "string") {
+    return payload.buttonsResponseMessage.selectedDisplayText;
+  }
+  if (typeof payload.listResponseMessage?.title === "string") {
+    return payload.listResponseMessage.title;
+  }
+  if (typeof payload.templateButtonReplyMessage?.selectedDisplayText === "string") {
+    return payload.templateButtonReplyMessage.selectedDisplayText;
+  }
+  if (typeof payload.pollCreationMessage?.name === "string") {
+    return payload.pollCreationMessage.name;
+  }
+  return "";
+}
+
+export function extractMessageType(message) {
+  const payload = unwrapMessage(message);
+  return payload ? Object.keys(payload)[0] ?? "unknown" : "unknown";
+}
+
 function preferredChatName(chat, contact) {
   return (
     chat.name ||
@@ -54,10 +117,21 @@ function sanitizeChat(chat = {}) {
 }
 
 export class WhatsAppStore {
-  constructor(filePath) {
+  constructor(
+    filePath,
+    {
+      maxMessagesPerChat = DEFAULT_MAX_MESSAGES_PER_CHAT,
+      maxMessagesTotal = DEFAULT_MAX_MESSAGES_TOTAL,
+      maxTextChars = DEFAULT_MAX_TEXT_CHARS
+    } = {}
+  ) {
     this.filePath = filePath;
     this.data = emptyStore();
     this.pendingSave = null;
+    this.messages = new Map();
+    this.maxMessagesPerChat = maxMessagesPerChat;
+    this.maxMessagesTotal = maxMessagesTotal;
+    this.maxTextChars = maxTextChars;
   }
 
   async load() {
@@ -183,6 +257,27 @@ export class WhatsAppStore {
       return;
     }
     const timestamp = normalizeTimestamp(message.messageTimestamp);
+    const messageEntry = {
+      id: message.key?.id ?? `${remoteJid}:${timestamp ?? Date.now()}`,
+      chatId: remoteJid,
+      participant: message.key?.participant ?? null,
+      fromMe: Boolean(message.key?.fromMe),
+      pushName: message.pushName ?? null,
+      timestamp,
+      text: extractMessageText(message.message).slice(0, this.maxTextChars),
+      messageType: extractMessageType(message.message)
+    };
+    const messages = this.messages.get(remoteJid) ?? [];
+    const existingIndex = messages.findIndex((item) => item.id === messageEntry.id);
+    if (existingIndex >= 0) {
+      messages[existingIndex] = messageEntry;
+    } else {
+      messages.push(messageEntry);
+    }
+    messages.sort((a, b) => (a.timestamp ?? 0) - (b.timestamp ?? 0));
+    this.messages.set(remoteJid, messages.slice(-this.maxMessagesPerChat));
+    this.#trimVolatileMessages();
+
     const currentChat = this.data.chats[remoteJid] ?? {
       id: remoteJid,
       isGroup: remoteJid.endsWith("@g.us")
@@ -208,6 +303,35 @@ export class WhatsAppStore {
       updatedAt: new Date().toISOString()
     };
     this.scheduleSave();
+  }
+
+  getMessages(chatId, limit = 20) {
+    const messages = this.messages.get(chatId) ?? [];
+    return messages.slice(-limit).map((message) => ({ ...message }));
+  }
+
+  #trimVolatileMessages() {
+    let total = [...this.messages.values()].reduce((count, list) => count + list.length, 0);
+    while (total > this.maxMessagesTotal) {
+      let oldestChatId = null;
+      let oldestTimestamp = Infinity;
+      for (const [chatId, list] of this.messages) {
+        const timestamp = list[0]?.timestamp ?? 0;
+        if (list.length && timestamp < oldestTimestamp) {
+          oldestChatId = chatId;
+          oldestTimestamp = timestamp;
+        }
+      }
+      if (!oldestChatId) {
+        break;
+      }
+      const list = this.messages.get(oldestChatId);
+      list.shift();
+      total -= 1;
+      if (!list.length) {
+        this.messages.delete(oldestChatId);
+      }
+    }
   }
 
   listChats({ limit = 20, query, unreadOnly = false } = {}) {

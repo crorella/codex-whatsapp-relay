@@ -1,7 +1,7 @@
 {
   "name": "whatsapp-relay",
-  "version": "0.4.3-hardened.4",
-  "description": "Link a local WhatsApp account, locate chats, and send text messages with URL previews disabled.",
+  "version": "0.4.3-hardened.5",
+  "description": "Link a local WhatsApp account, read recent messages from volatile memory, and send text with URL previews disabled.",
   "install_url": "https://raw.githubusercontent.com/crorella/codex-whatsapp-relay/refs/heads/main/plugins/whatsapp-relay/.codex-plugin/plugin.json",
   "author": {
     "name": "Adolfo Builes",
@@ -22,7 +22,7 @@
   "interface": {
     "displayName": "WhatsApp Relay",
     "shortDescription": "Put Codex in your WhatsApp",
-    "longDescription": "A reduced WhatsApp relay for local QR authentication, chat metadata lookup, and explicit text sending. It does not read message bodies or let WhatsApp control Codex.",
+    "longDescription": "A reduced WhatsApp relay for local QR authentication, bounded in-memory message reading, chat lookup, and explicit text sending. It does not let WhatsApp control Codex or persist message bodies.",
     "developerName": "Adolfo Builes",
     "category": "Tools & Integrations",
     "capabilities": [
@@ -35,6 +35,7 @@
     "defaultPrompt": [
       "Link my WhatsApp account and verify the auth status",
       "Find a WhatsApp contact or group by name",
+      "Read recent messages from a WhatsApp chat",
       "Send an explicit WhatsApp text message to a contact or group"
     ],
     "brandColor": "#25D366",
