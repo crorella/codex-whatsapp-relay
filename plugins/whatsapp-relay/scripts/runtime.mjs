@@ -7,13 +7,19 @@ import { Boom } from "@hapi/boom";
 import makeWASocket, {
   Browsers,
   DisconnectReason,
-  downloadMediaMessage,
   fetchLatestWaWebVersion,
   useMultiFileAuthState
 } from "@whiskeysockets/baileys";
 import pino from "pino";
 
-import { authDir, credsFile, ensureRuntimeDirs, runtimeFile, storeFile } from "./paths.mjs";
+import {
+  authDir,
+  credsFile,
+  ensureRuntimeDirs,
+  hardenAuthState,
+  runtimeFile,
+  storeFile
+} from "./paths.mjs";
 import { WhatsAppStore } from "./store.mjs";
 
 const require = createRequire(import.meta.url);
@@ -128,18 +134,6 @@ function disconnectLabel(code) {
   }
 }
 
-function payloadHasChat(payload, chatId) {
-  if (!chatId) {
-    return false;
-  }
-
-  if ((payload.chats ?? []).some((chat) => chat?.id === chatId)) {
-    return true;
-  }
-
-  return (payload.messages ?? []).some((message) => message?.key?.remoteJid === chatId);
-}
-
 export class WhatsAppRuntime {
   constructor({ logLevel = "warn" } = {}) {
     this.logger = createLogger(logLevel);
@@ -195,6 +189,12 @@ export class WhatsAppRuntime {
   async #startInternal({ printQrToTerminal }) {
     await this.initialize();
     const { state, saveCreds } = await useMultiFileAuthState(authDir);
+    const setKeys = state.keys.set.bind(state.keys);
+    state.keys.set = async (data) => {
+      await setKeys(data);
+      await hardenAuthState();
+    };
+    await hardenAuthState();
     const { version } = await fetchLatestWaWebVersion();
 
     this.state.status = "connecting";
@@ -215,6 +215,7 @@ export class WhatsAppRuntime {
 
     socket.ev.on("creds.update", async () => {
       await saveCreds();
+      await hardenAuthState();
       this.state.hasCreds = this.hasSavedCreds();
       this.events.emit("creds.update", this.summary());
     });
@@ -368,14 +369,6 @@ export class WhatsAppRuntime {
     return this.waitForConnection(timeoutMs);
   }
 
-  async downloadMediaBuffer(message) {
-    const socket = await this.ensureConnected();
-    return downloadMediaMessage(message, "buffer", {}, {
-      logger: this.logger,
-      reuploadRequest: socket.updateMediaMessage
-    });
-  }
-
   async startAuthFlow(timeoutMs = 20_000) {
     if (this.state.status === "connected" && this.socket) {
       return {
@@ -419,183 +412,6 @@ export class WhatsAppRuntime {
     throw new Error(
       `Timed out waiting for WhatsApp auth to start. Current status: ${this.state.status}.`
     );
-  }
-
-  async syncChatHistory({ chatId, count = 50, timeoutMs = 20_000 }) {
-    const socket = await this.ensureConnected();
-    const oldestMessage = this.store.getOldestMessage(chatId);
-
-    if (!oldestMessage) {
-      throw new Error(
-        `No cached messages found for ${chatId}. Read or sync the chat once before requesting older history.`
-      );
-    }
-
-    if (!oldestMessage.timestamp) {
-      throw new Error(
-        `The oldest cached message for ${chatId} has no timestamp, so older history cannot be requested.`
-      );
-    }
-
-    const beforeCount = this.store.getMessageCount(chatId);
-    this.store.ensureMessageCapacity(chatId, beforeCount + count + 25);
-
-    const requestSession = {
-      current: null
-    };
-    const syncResultPromise = this.#waitForHistorySync({
-      chatId,
-      getSessionId: () => requestSession.current,
-      timeoutMs
-    });
-
-    requestSession.current = await socket.fetchMessageHistory(
-      count,
-      {
-        remoteJid: oldestMessage.chatId,
-        id: oldestMessage.id,
-        fromMe: oldestMessage.fromMe,
-        participant: oldestMessage.participant ?? undefined
-      },
-      oldestMessage.timestamp
-    );
-
-    const syncResult = await syncResultPromise;
-    const oldestAfter = this.store.getOldestMessage(chatId);
-
-    return {
-      ...syncResult,
-      sessionId: requestSession.current,
-      beforeCount,
-      afterCount: this.store.getMessageCount(chatId),
-      oldestTimestampBefore: oldestMessage.timestamp,
-      oldestTimestampAfter: oldestAfter?.timestamp ?? oldestMessage.timestamp,
-      retentionLimit: this.store.getMessageLimit(chatId)
-    };
-  }
-
-  #waitForHistorySync({ chatId, getSessionId, timeoutMs = 20_000 }) {
-    return new Promise((resolve, reject) => {
-      const bufferedPayloads = [];
-      let done = false;
-      let receivedAny = false;
-      let idleTimer = null;
-      let bufferDrainTimer = null;
-
-      const summary = {
-        events: 0,
-        chats: 0,
-        contacts: 0,
-        messages: 0,
-        lastProgress: null,
-        isLatest: false,
-        timedOut: false
-      };
-
-      const cleanup = () => {
-        if (idleTimer) {
-          clearTimeout(idleTimer);
-          idleTimer = null;
-        }
-
-        if (bufferDrainTimer) {
-          clearInterval(bufferDrainTimer);
-          bufferDrainTimer = null;
-        }
-
-        clearTimeout(timeoutTimer);
-        this.events.off("messaging-history.set", onHistory);
-      };
-
-      const finish = (result) => {
-        if (done) {
-          return;
-        }
-
-        done = true;
-        cleanup();
-        resolve(result);
-      };
-
-      const fail = (error) => {
-        if (done) {
-          return;
-        }
-
-        done = true;
-        cleanup();
-        reject(error);
-      };
-
-      const scheduleIdleFinish = () => {
-        if (idleTimer) {
-          clearTimeout(idleTimer);
-        }
-
-        idleTimer = setTimeout(() => {
-          finish(summary);
-        }, 750);
-      };
-
-      const maybeHandlePayload = (payload) => {
-        const expectedSessionId = getSessionId();
-        if (!expectedSessionId) {
-          bufferedPayloads.push(payload);
-          return;
-        }
-
-        const sessionMatches = payload.peerDataRequestSessionId === expectedSessionId;
-        const chatMatches = payloadHasChat(payload, chatId);
-
-        if (!sessionMatches && !(payload.peerDataRequestSessionId == null && chatMatches)) {
-          return;
-        }
-
-        receivedAny = true;
-        summary.events += 1;
-        summary.chats += (payload.chats ?? []).filter((chat) => chat?.id === chatId).length;
-        summary.contacts += (payload.contacts ?? []).length;
-        summary.messages += (payload.messages ?? []).filter(
-          (message) => message?.key?.remoteJid === chatId
-        ).length;
-        summary.lastProgress = payload.progress ?? summary.lastProgress;
-        summary.isLatest = payload.isLatest ?? summary.isLatest;
-
-        if (payload.isLatest === true) {
-          finish(summary);
-          return;
-        }
-
-        scheduleIdleFinish();
-      };
-
-      const onHistory = (payload) => {
-        maybeHandlePayload(payload);
-      };
-
-      const timeoutTimer = setTimeout(() => {
-        if (receivedAny) {
-          finish({
-            ...summary,
-            timedOut: true
-          });
-          return;
-        }
-
-        fail(new Error(`Timed out waiting for older history for ${chatId}.`));
-      }, timeoutMs);
-
-      this.events.on("messaging-history.set", onHistory);
-      bufferDrainTimer = setInterval(() => {
-        if (!getSessionId() || !bufferedPayloads.length) {
-          return;
-        }
-
-        for (const payload of bufferedPayloads.splice(0)) {
-          maybeHandlePayload(payload);
-        }
-      }, 100);
-    });
   }
 
   #renderQr(value) {
