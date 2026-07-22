@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.4.3-hardened.1] - 2026-07-21
+
+- Disable outbound URL previews and remove the vulnerable preview dependency.
+- Remove WhatsApp-to-Codex control, voice, media, and message-history surfaces.
+- Persist chat metadata only, never message bodies.
+- Enforce private modes on credentials, authentication directories, and metadata.
+- Pin direct dependencies and commit a reproducible dependency lock.
+
 ## [Unreleased]
 
 ## [0.4.3] - 2026-03-30

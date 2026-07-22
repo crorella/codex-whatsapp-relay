@@ -10,22 +10,32 @@ export const authDir = path.join(dataDir, "auth");
 export const storeFile = path.join(dataDir, "store.json");
 export const runtimeFile = path.join(dataDir, "runtime.json");
 export const credsFile = path.join(authDir, "creds.json");
-export const controllerConfigFile = path.join(dataDir, "controller-config.json");
-export const controllerStateFile = path.join(dataDir, "controller-state.json");
-export const controllerLogFile = path.join(dataDir, "controller.log");
-export const controllerOutboxDir = path.join(dataDir, "controller-outbox");
-export const controllerOutboxFailedDir = path.join(dataDir, "controller-outbox.failed");
-export const controllerDaemonScript = path.join(scriptDir, "controller-daemon.mjs");
-export const globalControllerOwnerFile = path.join(
-  process.env.HOME ?? repoRoot,
-  ".codex",
-  "plugins",
-  "whatsapp-relay",
-  "controller-owner.json"
-);
+
+async function ensurePrivateDir(dirPath) {
+  await fs.mkdir(dirPath, { recursive: true, mode: 0o700 });
+  await fs.chmod(dirPath, 0o700);
+}
 
 export async function ensureRuntimeDirs() {
-  await fs.mkdir(authDir, { recursive: true });
-  await fs.mkdir(controllerOutboxDir, { recursive: true });
-  await fs.mkdir(controllerOutboxFailedDir, { recursive: true });
+  await ensurePrivateDir(dataDir);
+  await ensurePrivateDir(authDir);
+}
+
+export async function hardenAuthState(root = authDir) {
+  await ensurePrivateDir(root);
+  const entries = await fs.readdir(root, { withFileTypes: true });
+
+  await Promise.all(
+    entries.map(async (entry) => {
+      const entryPath = path.join(root, entry.name);
+      if (entry.isDirectory()) {
+        await hardenAuthState(entryPath);
+        return;
+      }
+
+      if (entry.isFile()) {
+        await fs.chmod(entryPath, 0o600);
+      }
+    })
+  );
 }
