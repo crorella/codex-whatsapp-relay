@@ -1,6 +1,6 @@
 {
   "name": "whatsapp-relay",
-  "version": "0.4.3-hardened.1",
+  "version": "0.4.3-hardened.3",
   "description": "Link a local WhatsApp account, locate chats, and send text messages with URL previews disabled.",
   "install_url": "https://raw.githubusercontent.com/crorella/codex-whatsapp-relay/refs/heads/main/plugins/whatsapp-relay/.codex-plugin/plugin.json",
   "author": {

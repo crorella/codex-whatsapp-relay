@@ -1,6 +1,6 @@
 {
   "name": "codex-whatsapp",
-  "version": "0.4.3-hardened.2",
+  "version": "0.4.3-hardened.3",
   "private": true,
   "type": "module",
   "description": "Hardened, send-only Codex WhatsApp relay with local QR authentication.",
