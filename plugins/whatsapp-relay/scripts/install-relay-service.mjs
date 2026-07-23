@@ -15,6 +15,10 @@ function quoteUnit(value) {
   return `"${value.replaceAll("\\", "\\\\").replaceAll('"', '\\"')}"`;
 }
 
+function pathUnit(value) {
+  return value.replaceAll(" ", "\\x20");
+}
+
 const unit = `[Unit]
 Description=Persistent hardened WhatsApp relay for Codex
 After=network-online.target
@@ -23,7 +27,7 @@ Wants=network-online.target
 [Service]
 Type=simple
 ExecStart=${quoteUnit(process.execPath)} ${quoteUnit(serviceEntry)}
-WorkingDirectory=${quoteUnit(pluginRoot)}
+WorkingDirectory=${pathUnit(pluginRoot)}
 Restart=on-failure
 RestartSec=5
 UMask=0077
@@ -32,7 +36,7 @@ PrivateTmp=true
 PrivateDevices=true
 ProtectSystem=full
 ProtectHome=read-only
-ReadWritePaths=${quoteUnit(dataDir)}
+ReadWritePaths=${pathUnit(dataDir)}
 ProtectControlGroups=true
 ProtectKernelModules=true
 ProtectKernelTunables=true
