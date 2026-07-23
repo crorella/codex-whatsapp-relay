@@ -13,8 +13,8 @@ After this change, the WhatsApp relay will keep one authenticated connection ali
 - [x] 2026-07-22: Implemented the persistent service protocol and thin MCP client.
 - [x] 2026-07-22: Added service installation, lifecycle documentation, and revised repository safety rules.
 - [x] 2026-07-22: Added and passed unit, integration, permission, expiry, restart-persistence, and regression tests.
-- [ ] Install the new plugin build and user service without replacing WhatsApp credentials.
-- [ ] Verify live reconnection and cross-client message retention.
+- [x] 2026-07-22: Installed plugin `0.4.3-hardened.8-experimental.1` and enabled the user service without replacing WhatsApp credentials.
+- [x] 2026-07-22: Verified live saved-session reconnection and MCP access through a separate client; cross-client retention is covered by integration tests and awaits the next real inbound message for an end-to-end observation.
 
 ## Surprises & Discoveries
 
@@ -23,6 +23,7 @@ After this change, the WhatsApp relay will keep one authenticated connection ali
 - The user explicitly preferred functional history access over volatile-only storage and authorized temporary local message persistence. The original no-body-on-disk constraint is therefore obsolete for this fork.
 - The managed sandbox rejects Unix socket creation with `EPERM`; the same test passes outside that socket restriction. This is an execution-environment limitation, not a relay failure.
 - A second service instance could otherwise unlink the first instance's live socket. Startup now probes an existing same-user socket and refuses to replace it when active.
+- This host's user systemd manager rejects capability and mount-namespace hardening with `status=218/CAPABILITIES`. The unit therefore relies on same-user execution, `NoNewPrivileges`, `UMask=0077`, and explicit `0700`/`0600` paths instead of unsupported namespace directives.
 
 ## Decision Log
 
@@ -46,7 +47,7 @@ Date/Author: 2026-07-22 / Codex
 
 ## Outcomes & Retrospective
 
-The implementation now passes 11 Node tests, Node syntax checks, Go race tests, and Go vet. A temporary live service reused the existing WhatsApp database and reported `connected` without QR authentication. Global installation and cross-request live verification remain.
+The implementation passes 11 Node tests, Node syntax checks, Go race tests, and Go vet. Plugin `0.4.3-hardened.8-experimental.1` is installed globally. `codex-whatsapp-relay.service` is enabled and active, reused the existing credentials without QR authentication, and reports `connected`. Runtime directories and files were verified as `0700`/`0600`. A separate MCP client reached the persistent service and read the Wut cache successfully; it was empty because the earlier reply, if any, arrived before this service existed and cannot be reconstructed.
 
 ## Context and Orientation
 
@@ -91,7 +92,7 @@ The service installer may be rerun safely. It rewrites only its own user unit an
 
 ## Artifacts and Notes
 
-Baseline is commit `d9db829219dc552e68063b164cecd27ba56c8fea` on `experiment/whatsmeow-transport`. The linked account was live-verified as connected before this change. A test send to Wut succeeded, but a later MCP process returned an empty message buffer, which is the motivating failure. Offline evidence: 11 Node tests passed; Go `-race` tests and `go vet` passed. Live pre-install smoke: the temporary service reported `status: connected` with the existing credential database and no QR flow.
+Baseline is commit `d9db829219dc552e68063b164cecd27ba56c8fea` on `experiment/whatsmeow-transport`. The linked account was live-verified as connected before this change. A test send to Wut succeeded, but a later MCP process returned an empty message buffer, which is the motivating failure. Offline evidence: 11 Node tests passed; Go `-race` tests and `go vet` passed. Live evidence: the installed service is `active` and `enabled`, status is `connected`, the socket and caches are mode `0600`, and an independently launched MCP client returned the new seven-day cache contract.
 
 ## Interfaces and Dependencies
 
