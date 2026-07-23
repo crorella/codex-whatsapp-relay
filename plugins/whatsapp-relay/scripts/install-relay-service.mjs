@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 
-import { dataDir, pluginRoot } from "./paths.mjs";
+import { pluginRoot } from "./paths.mjs";
 
 const runFile = promisify(execFile);
 const unitDir = path.join(os.homedir(), ".config", "systemd", "user");
@@ -15,10 +15,6 @@ function quoteUnit(value) {
   return `"${value.replaceAll("\\", "\\\\").replaceAll('"', '\\"')}"`;
 }
 
-function pathUnit(value) {
-  return value.replaceAll(" ", "\\x20");
-}
-
 const unit = `[Unit]
 Description=Persistent hardened WhatsApp relay for Codex
 After=network-online.target
@@ -27,20 +23,11 @@ Wants=network-online.target
 [Service]
 Type=simple
 ExecStart=${quoteUnit(process.execPath)} ${quoteUnit(serviceEntry)}
-WorkingDirectory=${pathUnit(pluginRoot)}
+WorkingDirectory=${pluginRoot.replaceAll(" ", "\\x20")}
 Restart=on-failure
 RestartSec=5
 UMask=0077
 NoNewPrivileges=true
-PrivateTmp=true
-PrivateDevices=true
-ProtectSystem=full
-ProtectHome=read-only
-ReadWritePaths=${pathUnit(dataDir)}
-ProtectControlGroups=true
-ProtectKernelModules=true
-ProtectKernelTunables=true
-RestrictSUIDSGID=true
 
 [Install]
 WantedBy=default.target
