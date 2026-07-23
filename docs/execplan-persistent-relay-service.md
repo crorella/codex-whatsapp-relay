@@ -15,8 +15,8 @@ After this change, the WhatsApp relay will keep one authenticated connection ali
 - [x] 2026-07-22: Added and passed unit, integration, permission, expiry, restart-persistence, and regression tests.
 - [x] 2026-07-22: Installed plugin `0.4.3-hardened.8-experimental.1` and enabled the user service without replacing WhatsApp credentials.
 - [x] 2026-07-22: Verified live saved-session reconnection and MCP access through a separate client; cross-client retention is covered by integration tests and awaits the next real inbound message for an end-to-end observation.
-- [ ] 2026-07-22: Preserve audio, images, video, documents, stickers, links, contacts, locations, and polls instead of discarding non-text events.
-- [ ] 2026-07-22: Expose private attachment paths and metadata through the existing read surface and validate a real received audio message.
+- [x] 2026-07-22: Preserved audio, images, video, documents, stickers, links, contacts, locations, polls, reactions, and generic future message types instead of discarding non-text events.
+- [x] 2026-07-22: Exposed private attachment paths and metadata through the read surface and validated real received audio, image, and sticker messages across a service restart.
 
 ## Surprises & Discoveries
 
@@ -56,7 +56,7 @@ Date/Author: 2026-07-22 / Codex
 
 ## Outcomes & Retrospective
 
-The implementation passes 11 Node tests, Node syntax checks, Go race tests, and Go vet. Plugin `0.4.3-hardened.8-experimental.1` is installed globally. `codex-whatsapp-relay.service` is enabled and active, reused the existing credentials without QR authentication, and reports `connected`. Runtime directories and files were verified as `0700`/`0600`. A separate MCP client reached the persistent service and read the Wut cache successfully; it was empty because the earlier reply, if any, arrived before this service existed and cannot be reconstructed.
+The implementation passes 13 Node tests, Node syntax checks, Go race tests, Go vet, and a fresh sidecar build. Plugin `0.4.3-hardened.9-experimental.2` is installed globally at commit `73edbaf`. `codex-whatsapp-relay.service` is enabled, active, reused the existing credentials without QR authentication, and reports `connected`. Runtime directories are `0700`; caches, socket, and media files are `0600`. Live messages in Modo Pichu produced downloaded JPEG images, Ogg/Opus audio, and WebP stickers with correct metadata. These files remained readable after restarting the service; `ffprobe` validated one 9,622-byte audio as a 4.2265-second Ogg file. Captionless media now reaches Codex, while reactions and other protobuf message variants are retained as structured or generically classified events.
 
 ## Context and Orientation
 
@@ -93,7 +93,7 @@ Then call MCP status/list/read through two separate client processes. The second
 
 Acceptance requires all existing tests plus new tests proving: the socket directory is `0700` and socket is `0600`; malformed or oversized RPC requests fail closed; the approved six MCP tools remain; message bodies appear only in the private expiring cache and never in service logs; media files are private, bounded, and garbage-collected; a message ingested before one RPC client disconnects is readable by a later client and after a service restart; sends still require an exact chat and explicit call; and service installation is idempotent.
 
-Live acceptance requires the installed service to report `connected` using the existing account with no QR flow. A response received after an MCP command exits must be returned by a later read call.
+Live acceptance requires the installed service to report `connected` using the existing account with no QR flow. A response received after an MCP command exits must be returned by a later read call. At least one real captionless audio and one image or sticker must report `status: downloaded`, an exact private path, MIME type, and size, and remain available after restarting the user service.
 
 ## Idempotence and Recovery
 
