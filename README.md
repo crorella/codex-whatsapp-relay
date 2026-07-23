@@ -16,21 +16,24 @@ from Codex. This experimental release replaces Baileys with the unofficial Go
 - URL previews are absent from every outbound message: the Go sidecar sends
   only a plain WhatsApp `Conversation` protobuf and never constructs preview metadata.
 - Direct Node and Go dependency versions and their transitive graphs are locked.
-- The WhatsApp-to-Codex controller, background daemon, voice execution, history
-  synchronization, and media-download features are removed.
-- Recent message bodies are buffered only in bounded process memory: up to 200
-  per chat, 5,000 overall, and 16,000 characters per message.
-- Message bodies are not persisted. The local cache contains only the metadata
-  needed to resolve chat names and IDs, and legacy plaintext bodies are scrubbed.
+- The WhatsApp-to-Codex controller, voice execution, history synchronization,
+  and media-download features are removed.
+- Recent message bodies are cached locally for at most seven days: up to 200 per
+  chat, 5,000 overall, and 16,000 characters per message.
+- The message cache is mode `0600`; chat metadata remains separate, and expired
+  entries are pruned automatically.
 - Message content returned to Codex is explicitly labeled as untrusted data.
-- After authentication, the MCP reconnects when it starts so it can receive new
-  messages while the process is running.
+- After authentication, one same-user service keeps the WhatsApp connection and
+  bounded buffer alive between separate MCP requests.
 - Authentication directories use mode `0700`; credentials and cached metadata
   use mode `0600`.
 - Whatsmeow automatic reconnect is disabled. Pairing performs one connection
   attempt plus the single protocol-required reconnect after a successful scan.
-- The Go process is a child of the MCP over private stdin/stdout pipes. It does
-  not listen on a port or continue as a background daemon.
+- The persistent service reconnects an already-authenticated session with
+  bounded exponential backoff; it never retries QR registration automatically.
+- The Go process is a child of the persistent Node service over private
+  stdin/stdout pipes. MCP processes use a mode-`0600` Unix socket inside a
+  mode-`0700` directory; no TCP port is opened.
 - Node installation uses `npm ci --ignore-scripts`; the reviewed Go source is
   compiled separately with `npm run build:whatsmeow`.
 
@@ -47,8 +50,8 @@ guessing.
 
 ## Privacy boundary
 
-The relay itself never writes message bodies to its metadata cache. That does
-not make a read operation ephemeral end-to-end: after `whatsapp_read_messages`
+The relay keeps message bodies in a private temporary cache. After
+`whatsapp_read_messages`
 returns content, the Codex host, task history, logs, or configured model service
 may retain that tool output under their own policies. Anyone able to use this
 authenticated MCP can also read buffered messages from the linked account.
@@ -65,6 +68,7 @@ Go 1.25 and Node 20 or newer:
 ```bash
 npm ci --ignore-scripts --no-fund --no-audit
 npm run build:whatsmeow
+npm run whatsapp:service:install
 ```
 
 Add the plugin directory to the personal Codex marketplace with authentication
@@ -78,9 +82,11 @@ After restart, call `whatsapp_start_auth` and scan the QR code from WhatsApp:
 
 - Authentication: `plugins/whatsapp-relay/data/auth/whatsmeow.db`
 - Chat metadata: `plugins/whatsapp-relay/data/store.json`
+- Temporary messages: `plugins/whatsapp-relay/data/messages.json`
+- Private service socket: `plugins/whatsapp-relay/data/run/relay.sock`
 
-Both locations are excluded from Git. Message bodies are never written to the
-metadata cache; the volatile buffer disappears whenever the MCP process exits.
+These locations are excluded from Git. Message bodies expire after seven days
+and remain bounded even while the user service runs continuously.
 
 ## Verification
 

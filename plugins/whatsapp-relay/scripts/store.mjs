@@ -4,6 +4,7 @@ import path from "node:path";
 const DEFAULT_MAX_MESSAGES_PER_CHAT = 200;
 const DEFAULT_MAX_MESSAGES_TOTAL = 5_000;
 const DEFAULT_MAX_TEXT_CHARS = 16_000;
+const DEFAULT_MESSAGE_TTL_MS = 7 * 24 * 60 * 60 * 1_000;
 
 function emptyStore() {
   return {
@@ -120,18 +121,22 @@ export class WhatsAppStore {
   constructor(
     filePath,
     {
+      messagesFilePath = path.join(path.dirname(filePath), "messages.json"),
       maxMessagesPerChat = DEFAULT_MAX_MESSAGES_PER_CHAT,
       maxMessagesTotal = DEFAULT_MAX_MESSAGES_TOTAL,
-      maxTextChars = DEFAULT_MAX_TEXT_CHARS
+      maxTextChars = DEFAULT_MAX_TEXT_CHARS,
+      messageTtlMs = DEFAULT_MESSAGE_TTL_MS
     } = {}
   ) {
     this.filePath = filePath;
+    this.messagesFilePath = messagesFilePath;
     this.data = emptyStore();
     this.pendingSave = null;
     this.messages = new Map();
     this.maxMessagesPerChat = maxMessagesPerChat;
     this.maxMessagesTotal = maxMessagesTotal;
     this.maxTextChars = maxTextChars;
+    this.messageTtlMs = messageTtlMs;
   }
 
   async load() {
@@ -147,12 +152,28 @@ export class WhatsAppStore {
         ),
         contacts: parsed.contacts ?? {}
       };
-      await this.save();
     } catch (error) {
       if (error?.code !== "ENOENT") {
         throw error;
       }
     }
+    try {
+      const cached = JSON.parse(await fs.readFile(this.messagesFilePath, "utf8"));
+      for (const [chatId, messages] of Object.entries(cached.messages ?? {})) {
+        if (!Array.isArray(messages)) continue;
+        this.messages.set(
+          chatId,
+          messages
+            .filter((message) => message && message.chatId === chatId)
+            .slice(-this.maxMessagesPerChat)
+        );
+      }
+    } catch (error) {
+      if (error?.code !== "ENOENT") throw error;
+    }
+    this.#pruneExpiredMessages();
+    this.#trimVolatileMessages();
+    await this.save();
   }
 
   async save() {
@@ -171,6 +192,29 @@ export class WhatsAppStore {
     });
     await fs.rename(tempFile, this.filePath);
     await fs.chmod(this.filePath, 0o600);
+
+    this.#pruneExpiredMessages();
+    this.#trimVolatileMessages();
+    const tempMessagesFile = path.join(
+      path.dirname(this.messagesFilePath),
+      `.${path.basename(this.messagesFilePath)}.${process.pid}.${Date.now()}.tmp`
+    );
+    await fs.writeFile(
+      tempMessagesFile,
+      JSON.stringify(
+        {
+          version: 1,
+          retentionMs: this.messageTtlMs,
+          updatedAt: new Date().toISOString(),
+          messages: Object.fromEntries(this.messages)
+        },
+        null,
+        2
+      ),
+      { encoding: "utf8", mode: 0o600 }
+    );
+    await fs.rename(tempMessagesFile, this.messagesFilePath);
+    await fs.chmod(this.messagesFilePath, 0o600);
   }
 
   scheduleSave() {
@@ -265,7 +309,8 @@ export class WhatsAppStore {
       pushName: message.pushName ?? null,
       timestamp,
       text: extractMessageText(message.message).slice(0, this.maxTextChars),
-      messageType: extractMessageType(message.message)
+      messageType: extractMessageType(message.message),
+      cachedAt: Date.now()
     };
     const messages = this.messages.get(remoteJid) ?? [];
     const existingIndex = messages.findIndex((item) => item.id === messageEntry.id);
@@ -306,8 +351,9 @@ export class WhatsAppStore {
   }
 
   getMessages(chatId, limit = 20) {
+    this.#pruneExpiredMessages();
     const messages = this.messages.get(chatId) ?? [];
-    return messages.slice(-limit).map((message) => ({ ...message }));
+    return messages.slice(-limit).map(({ cachedAt: _cachedAt, ...message }) => ({ ...message }));
   }
 
   #trimVolatileMessages() {
@@ -331,6 +377,23 @@ export class WhatsAppStore {
       if (!list.length) {
         this.messages.delete(oldestChatId);
       }
+    }
+  }
+
+  #pruneExpiredMessages(now = Date.now()) {
+    const cutoff = now - this.messageTtlMs;
+    for (const [chatId, messages] of this.messages) {
+      const retained = messages.filter((message) => {
+        const observedAt =
+          Number.isFinite(message.cachedAt) && message.cachedAt > 0
+            ? message.cachedAt
+            : Number.isFinite(message.timestamp)
+              ? message.timestamp * 1_000
+              : 0;
+        return observedAt >= cutoff;
+      });
+      if (retained.length) this.messages.set(chatId, retained);
+      else this.messages.delete(chatId);
     }
   }
 

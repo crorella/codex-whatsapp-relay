@@ -7,8 +7,12 @@ export const pluginRoot = path.resolve(scriptDir, "..");
 export const repoRoot = path.resolve(pluginRoot, "..", "..");
 export const dataDir = path.join(pluginRoot, "data");
 export const authDir = path.join(dataDir, "auth");
+export const runDir = path.join(dataDir, "run");
 export const storeFile = path.join(dataDir, "store.json");
+export const messagesFile = path.join(dataDir, "messages.json");
 export const runtimeFile = path.join(dataDir, "runtime.json");
+export const relaySocketFile =
+  process.env.WHATSAPP_RELAY_SOCKET || path.join(runDir, "relay.sock");
 export const sessionDbFile =
   process.env.WHATSAPP_SESSION_DB || path.join(authDir, "whatsmeow.db");
 export const credsFile = sessionDbFile;
@@ -22,6 +26,7 @@ async function ensurePrivateDir(dirPath) {
 export async function ensureRuntimeDirs() {
   await ensurePrivateDir(dataDir);
   await ensurePrivateDir(authDir);
+  await ensurePrivateDir(runDir);
 }
 
 export async function hardenAuthState(root = authDir) {

@@ -20,5 +20,6 @@ test("MCP registers only the hardened messaging surface", () => {
     "whatsapp_send_message",
     "whatsapp_start_auth"
   ]);
-  assert.match(source, /if \(runtime\.hasSavedCreds\(\)\)/);
+  assert.match(source, /new RelayClient\(\)/);
+  assert.doesNotMatch(source, /new WhatsAppRuntime\(/);
 });

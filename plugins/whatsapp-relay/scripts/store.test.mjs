@@ -6,7 +6,7 @@ import path from "node:path";
 
 import { WhatsAppStore } from "./store.mjs";
 
-test("store reads message bodies from memory without persisting them", async () => {
+test("store persists message bodies only in the private temporary cache", async () => {
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "whatsapp-safe-store-"));
   const storePath = path.join(tempDir, "store.json");
   try {
@@ -33,13 +33,54 @@ test("store reads message bodies from memory without persisting them", async () 
     ]);
 
     const raw = await fs.readFile(storePath, "utf8");
+    const messageCachePath = path.join(tempDir, "messages.json");
+    const cachedRaw = await fs.readFile(messageCachePath, "utf8");
     const saved = JSON.parse(raw);
     const mode = (await fs.stat(storePath)).mode & 0o777;
+    const cacheMode = (await fs.stat(messageCachePath)).mode & 0o777;
 
     assert.equal(raw.includes("PRIVATE MESSAGE BODY"), false);
     assert.equal(saved.messages, undefined);
     assert.equal(saved.chats["group@g.us"].lastMessageText, undefined);
     assert.equal(mode, 0o600);
+    assert.equal(cachedRaw.includes("PRIVATE MESSAGE BODY"), true);
+    assert.equal(cacheMode, 0o600);
+
+    const restarted = new WhatsAppStore(storePath);
+    await restarted.load();
+    assert.equal(restarted.getMessages("group@g.us", 20)[0].text, "PRIVATE MESSAGE BODY");
+    await restarted.save();
+  } finally {
+    await fs.rm(tempDir, { recursive: true, force: true });
+  }
+});
+
+test("temporary message cache drops expired bodies on load", async () => {
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "whatsapp-safe-expiry-"));
+  const storePath = path.join(tempDir, "store.json");
+  const messagesPath = path.join(tempDir, "messages.json");
+  try {
+    await fs.writeFile(
+      messagesPath,
+      JSON.stringify({
+        messages: {
+          "old@s.whatsapp.net": [
+            {
+              id: "old",
+              chatId: "old@s.whatsapp.net",
+              timestamp: 1,
+              cachedAt: 1,
+              text: "EXPIRED BODY"
+            }
+          ]
+        }
+      }),
+      { mode: 0o600 }
+    );
+    const store = new WhatsAppStore(storePath, { messageTtlMs: 1_000 });
+    await store.load();
+    assert.deepEqual(store.getMessages("old@s.whatsapp.net"), []);
+    assert.equal((await fs.readFile(messagesPath, "utf8")).includes("EXPIRED BODY"), false);
   } finally {
     await fs.rm(tempDir, { recursive: true, force: true });
   }

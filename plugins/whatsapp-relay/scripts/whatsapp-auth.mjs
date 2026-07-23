@@ -1,24 +1,32 @@
-import { WhatsAppRuntime } from "./runtime.mjs";
+import { setTimeout as delay } from "node:timers/promises";
 
-const runtime = new WhatsAppRuntime();
+import { RelayClient } from "./relay-client.mjs";
+
+const relay = new RelayClient();
 
 try {
-  await runtime.initialize();
   process.stdout.write("Starting one controlled WhatsApp QR authentication attempt...\n");
   process.stdout.write(
     "Open WhatsApp on your phone, then go to Settings -> Linked Devices -> Link a Device.\n"
   );
 
-  const result = await runtime.startAuthFlow();
+  const result = await relay.request("start_auth");
   if (result.qrText) {
     process.stdout.write(`\n${result.qrText}\n\n`);
   }
-  await runtime.waitForConnection(5 * 60_000);
-  const user = runtime.summary().user?.id ?? "unknown";
+  const startedAt = Date.now();
+  let summary = await relay.request("status");
+  while (summary.status !== "connected" && Date.now() - startedAt < 5 * 60_000) {
+    if (summary.status === "disconnected" || summary.status === "logged_out") {
+      throw new Error(`WhatsApp authentication ended with status ${summary.status}.`);
+    }
+    await delay(500);
+    summary = await relay.request("status");
+  }
+  if (summary.status !== "connected") throw new Error("Timed out waiting for WhatsApp to connect.");
+  const user = summary.user?.id ?? "unknown";
   process.stdout.write(`\nAuthenticated successfully as ${user}.\n`);
 } catch (error) {
   process.stderr.write(`\nAuthentication failed: ${error.message}\n`);
   process.exitCode = 1;
-} finally {
-  await runtime.close().catch(() => {});
 }

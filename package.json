@@ -1,6 +1,6 @@
 {
   "name": "codex-whatsapp",
-  "version": "0.4.3-hardened.7-experimental.1",
+  "version": "0.4.3-hardened.8-experimental.1",
   "private": true,
   "type": "module",
   "description": "Experimental hardened Codex WhatsApp relay using a local whatsmeow sidecar.",
@@ -11,6 +11,8 @@
     "whatsapp:auth": "node ./plugins/whatsapp-relay/scripts/whatsapp-auth.mjs",
     "whatsapp:mcp": "node ./plugins/whatsapp-relay/scripts/mcp-server.mjs",
     "whatsapp:status": "node ./plugins/whatsapp-relay/scripts/whatsapp-status.mjs",
+    "whatsapp:service": "node ./plugins/whatsapp-relay/scripts/relay-service.mjs",
+    "whatsapp:service:install": "node ./plugins/whatsapp-relay/scripts/install-relay-service.mjs",
     "build:whatsmeow": "go build -C ./plugins/whatsapp-relay/whatsmeow-sidecar -o ../bin/whatsmeow-sidecar ./cmd/whatsmeow-sidecar",
     "test:go": "go test -C ./plugins/whatsapp-relay/whatsmeow-sidecar ./...",
     "check": "node --check ./plugins/whatsapp-relay/scripts/*.mjs",

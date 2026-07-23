@@ -33,6 +33,15 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.4.3-hardened.8-experimental.1] - 2026-07-22
+
+- Keep one WhatsApp connection and bounded temporary message cache available through a
+  same-user systemd service so later MCP calls can read replies received between requests.
+- Move MCP operations to a private mode-`0600` Unix socket without opening a TCP port.
+- Preserve explicit sends, untrusted inbound content, and no automatic actions.
+- Retain at most seven days of message bodies in a mode-`0600` local cache so
+  replies survive service restarts.
+
 ## [0.4.3-hardened.7-experimental.1] - 2026-07-22
 
 - Replace Baileys with a pinned Go `whatsmeow` sidecar for a controlled pairing experiment.

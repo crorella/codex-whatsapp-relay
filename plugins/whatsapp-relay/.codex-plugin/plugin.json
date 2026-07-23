@@ -1,7 +1,7 @@
 {
   "name": "whatsapp-relay",
-  "version": "0.4.3-hardened.7-experimental.1",
-  "description": "Experimentally link WhatsApp through a hardened whatsmeow sidecar, read recent messages from volatile memory, and send text without URL previews.",
+  "version": "0.4.3-hardened.8-experimental.1",
+  "description": "Keep one local WhatsApp connection alive, read recent messages from a bounded temporary cache, and send explicit text without URL previews.",
   "install_url": "https://raw.githubusercontent.com/crorella/codex-whatsapp-relay/refs/heads/main/plugins/whatsapp-relay/.codex-plugin/plugin.json",
   "author": {
     "name": "Adolfo Builes",
@@ -22,7 +22,7 @@
   "interface": {
     "displayName": "WhatsApp Relay",
     "shortDescription": "Put Codex in your WhatsApp",
-    "longDescription": "An experimental reduced WhatsApp relay using a local whatsmeow sidecar for QR authentication, bounded in-memory message reading, chat lookup, and explicit text sending. It does not let WhatsApp control Codex or persist message bodies.",
+    "longDescription": "An experimental reduced WhatsApp relay using a persistent same-user service and local whatsmeow sidecar for QR authentication, seven-day bounded message caching across Codex requests, chat lookup, and explicit text sending. It does not let WhatsApp control Codex or respond automatically.",
     "developerName": "Adolfo Builes",
     "category": "Tools & Integrations",
     "capabilities": [
