@@ -7,7 +7,7 @@ This fork is a deliberately reduced version of
 based on upstream release `v0.4.3` (`974b5e9286faee12bf4bd07ee82bb2f854ea9ab6`).
 
 It keeps the functionality needed to link a local WhatsApp account, locate a
-chat or group, read recent messages, reason about them, and send a text message
+chat or group, read recent messages and received attachments, reason about them, and send a text message
 from Codex. This experimental release replaces Baileys with the unofficial Go
 `whatsmeow` client. It is not an official Meta integration.
 
@@ -16,12 +16,16 @@ from Codex. This experimental release replaces Baileys with the unofficial Go
 - URL previews are absent from every outbound message: the Go sidecar sends
   only a plain WhatsApp `Conversation` protobuf and never constructs preview metadata.
 - Direct Node and Go dependency versions and their transitive graphs are locked.
-- The WhatsApp-to-Codex controller, voice execution, history synchronization,
-  and media-download features are removed.
+- The WhatsApp-to-Codex controller, voice execution, automatic replies, and
+  history backfills are removed. Newly received media is downloaded passively
+  into the bounded private cache for explicit user-requested analysis.
 - Recent message bodies are cached locally for at most seven days: up to 200 per
   chat, 5,000 overall, and 16,000 characters per message.
 - The message cache is mode `0600`; chat metadata remains separate, and expired
   entries are pruned automatically.
+- Audio, images, video, documents, and stickers are stored as mode-`0600` files
+  under a mode-`0700` directory, limited to 50 MiB each by default, and removed
+  when no retained message references them.
 - Message content returned to Codex is explicitly labeled as untrusted data.
 - After authentication, one same-user service keeps the WhatsApp connection and
   bounded buffer alive between separate MCP requests.
@@ -43,6 +47,7 @@ from Codex. This experimental release replaces Baileys with the unofficial Go
 - `whatsapp_auth_status`
 - `whatsapp_list_chats`
 - `whatsapp_read_messages`
+- `whatsapp_get_attachment`
 - `whatsapp_send_message`
 
 The relay refuses ambiguous chat-name matches and returns candidates instead of
@@ -83,6 +88,7 @@ After restart, call `whatsapp_start_auth` and scan the QR code from WhatsApp:
 - Authentication: `plugins/whatsapp-relay/data/auth/whatsmeow.db`
 - Chat metadata: `plugins/whatsapp-relay/data/store.json`
 - Temporary messages: `plugins/whatsapp-relay/data/messages.json`
+- Temporary media: `plugins/whatsapp-relay/data/media/`
 - Private service socket: `plugins/whatsapp-relay/data/run/relay.sock`
 
 These locations are excluded from Git. Message bodies expire after seven days

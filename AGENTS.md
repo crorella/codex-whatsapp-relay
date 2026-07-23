@@ -2,14 +2,18 @@
 
 This is a security-reduced fork of `abuiles/codex-whatsapp-relay`.
 
-- Keep the plugin limited to QR authentication, chat lookup, bounded in-memory
-  message reading, and text sending.
-- Do not add phone-to-Codex control, message-history downloads, media downloads,
-  or voice execution. One same-user background service
+- Keep the plugin limited to QR authentication, chat lookup, bounded temporary
+  message and media reading, and explicit text sending.
+- Passive inbound media downloads are allowed for user-requested inspection,
+  transcription, or analysis. Do not add phone-to-Codex control, automatic
+  interpretation, automatic transcription, message-history backfills, or voice execution. One same-user background service
   may keep the WhatsApp transport and bounded volatile message buffer alive between
   MCP calls. It must not interpret inbound content, launch Codex, or reply automatically.
 - A mode-`0600` message cache may persist at most seven days, 200 messages per
   chat, and 5,000 messages globally. Do not create an unbounded archive.
+- Inbound media may persist for the same seven-day window in a mode-`0700`
+  directory with mode-`0600` files. Enforce the per-file size limit and remove
+  files no retained message references.
 - Keep URL previews disabled. The whatsmeow sidecar must send only a plain
   `Conversation` protobuf and must never add link-preview metadata.
 - Pin direct Node and Go dependencies exactly, commit `package-lock.json` and

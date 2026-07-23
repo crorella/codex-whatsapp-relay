@@ -1,7 +1,7 @@
 {
   "name": "whatsapp-relay",
-  "version": "0.4.3-hardened.8-experimental.1",
-  "description": "Keep one local WhatsApp connection alive, read recent messages from a bounded temporary cache, and send explicit text without URL previews.",
+  "version": "0.4.3-hardened.9-experimental.1",
+  "description": "Keep one local WhatsApp connection alive, read recent messages and received attachments from a bounded temporary cache, and send explicit text without URL previews.",
   "install_url": "https://raw.githubusercontent.com/crorella/codex-whatsapp-relay/refs/heads/main/plugins/whatsapp-relay/.codex-plugin/plugin.json",
   "author": {
     "name": "Adolfo Builes",
@@ -22,7 +22,7 @@
   "interface": {
     "displayName": "WhatsApp Relay",
     "shortDescription": "Put Codex in your WhatsApp",
-    "longDescription": "An experimental reduced WhatsApp relay using a persistent same-user service and local whatsmeow sidecar for QR authentication, seven-day bounded message caching across Codex requests, chat lookup, and explicit text sending. It does not let WhatsApp control Codex or respond automatically.",
+    "longDescription": "An experimental WhatsApp relay using a persistent same-user service and local whatsmeow sidecar for QR authentication, seven-day bounded message and media caching across Codex requests, chat lookup, explicit attachment inspection, and explicit text sending. It does not let WhatsApp control Codex or respond automatically.",
     "developerName": "Adolfo Builes",
     "category": "Tools & Integrations",
     "capabilities": [
@@ -36,6 +36,7 @@
       "Link my WhatsApp account and verify the auth status",
       "Find a WhatsApp contact or group by name",
       "Read recent messages from a WhatsApp chat",
+      "Inspect a received WhatsApp audio, image, video, or document",
       "Send an explicit WhatsApp text message to a contact or group"
     ],
     "brandColor": "#25D366",

@@ -8,6 +8,7 @@ export const repoRoot = path.resolve(pluginRoot, "..", "..");
 export const dataDir = path.join(pluginRoot, "data");
 export const authDir = path.join(dataDir, "auth");
 export const runDir = path.join(dataDir, "run");
+export const mediaDir = process.env.WHATSAPP_MEDIA_DIR || path.join(dataDir, "media");
 export const storeFile = path.join(dataDir, "store.json");
 export const messagesFile = path.join(dataDir, "messages.json");
 export const runtimeFile = path.join(dataDir, "runtime.json");
@@ -27,6 +28,7 @@ export async function ensureRuntimeDirs() {
   await ensurePrivateDir(dataDir);
   await ensurePrivateDir(authDir);
   await ensurePrivateDir(runDir);
+  await ensurePrivateDir(mediaDir);
 }
 
 export async function hardenAuthState(root = authDir) {

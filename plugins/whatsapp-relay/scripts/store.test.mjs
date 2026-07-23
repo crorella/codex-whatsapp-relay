@@ -28,7 +28,9 @@ test("store persists message bodies only in the private temporary cache", async 
         pushName: "Private Sender",
         timestamp: 123,
         text: "PRIVATE MESSAGE BODY",
-        messageType: "conversation"
+        messageType: "conversation",
+        attachments: [],
+        structured: null
       }
     ]);
 
@@ -81,6 +83,49 @@ test("temporary message cache drops expired bodies on load", async () => {
     await store.load();
     assert.deepEqual(store.getMessages("old@s.whatsapp.net"), []);
     assert.equal((await fs.readFile(messagesPath, "utf8")).includes("EXPIRED BODY"), false);
+  } finally {
+    await fs.rm(tempDir, { recursive: true, force: true });
+  }
+});
+
+test("attachment metadata persists and unreferenced private media is removed", async () => {
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "whatsapp-safe-media-"));
+  const storePath = path.join(tempDir, "store.json");
+  const mediaPath = path.join(tempDir, "media");
+  const retainedPath = path.join(mediaPath, "retained.ogg");
+  const orphanPath = path.join(mediaPath, "orphan.jpg");
+  try {
+    await fs.mkdir(mediaPath, { mode: 0o700 });
+    await fs.writeFile(retainedPath, "audio", { mode: 0o600 });
+    await fs.writeFile(orphanPath, "image", { mode: 0o600 });
+    const store = new WhatsAppStore(storePath, { mediaDirPath: mediaPath });
+    store.ingestMessage({
+      key: { id: "audio-1", remoteJid: "group@g.us", fromMe: false },
+      messageTimestamp: 123,
+      normalizedMessageType: "audioMessage",
+      attachments: [
+        {
+          kind: "audio",
+          mimeType: "audio/ogg; codecs=opus",
+          status: "downloaded",
+          path: retainedPath,
+          size: 5,
+          ptt: true
+        }
+      ],
+      message: { conversation: "" }
+    });
+    await store.save();
+
+    assert.equal((await fs.stat(mediaPath)).mode & 0o777, 0o700);
+    assert.equal((await fs.stat(retainedPath)).mode & 0o777, 0o600);
+    await assert.rejects(fs.stat(orphanPath), { code: "ENOENT" });
+    assert.equal(store.getMessages("group@g.us")[0].messageType, "audioMessage");
+    assert.equal(store.getAttachment("group@g.us", "audio-1").path, retainedPath);
+
+    const restarted = new WhatsAppStore(storePath, { mediaDirPath: mediaPath });
+    await restarted.load();
+    assert.equal(restarted.getAttachment("group@g.us", "audio-1").kind, "audio");
   } finally {
     await fs.rm(tempDir, { recursive: true, force: true });
   }

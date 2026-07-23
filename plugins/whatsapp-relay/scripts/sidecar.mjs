@@ -7,6 +7,7 @@ import readline from "node:readline";
 import {
   ensureRuntimeDirs,
   hardenAuthState,
+  mediaDir,
   sessionDbFile,
   sidecarBinary
 } from "./paths.mjs";
@@ -34,12 +35,14 @@ export class SidecarClient extends EventEmitter {
   constructor({
     binaryPath = process.env.WHATSAPP_SIDECAR_BIN || sidecarBinary,
     sessionPath = process.env.WHATSAPP_SESSION_DB || sessionDbFile,
+    mediaPath = process.env.WHATSAPP_MEDIA_DIR || mediaDir,
     spawnImpl = spawn,
     requestTimeoutMs = 30_000
   } = {}) {
     super();
     this.binaryPath = binaryPath;
     this.sessionPath = sessionPath;
+    this.mediaPath = mediaPath;
     this.spawnImpl = spawnImpl;
     this.requestTimeoutMs = requestTimeoutMs;
     this.child = null;
@@ -69,7 +72,9 @@ export class SidecarClient extends EventEmitter {
       stdio: ["pipe", "pipe", "pipe"],
       env: {
         ...process.env,
-        WHATSAPP_SESSION_DB: this.sessionPath
+        WHATSAPP_SESSION_DB: this.sessionPath,
+        WHATSAPP_MEDIA_DIR: this.mediaPath,
+        WHATSAPP_MAX_MEDIA_BYTES: process.env.WHATSAPP_MAX_MEDIA_BYTES || String(50 * 1024 * 1024)
       }
     });
     this.child = child;

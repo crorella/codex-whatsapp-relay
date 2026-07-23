@@ -122,6 +122,7 @@ export class WhatsAppStore {
     filePath,
     {
       messagesFilePath = path.join(path.dirname(filePath), "messages.json"),
+      mediaDirPath = path.join(path.dirname(filePath), "media"),
       maxMessagesPerChat = DEFAULT_MAX_MESSAGES_PER_CHAT,
       maxMessagesTotal = DEFAULT_MAX_MESSAGES_TOTAL,
       maxTextChars = DEFAULT_MAX_TEXT_CHARS,
@@ -130,6 +131,7 @@ export class WhatsAppStore {
   ) {
     this.filePath = filePath;
     this.messagesFilePath = messagesFilePath;
+    this.mediaDirPath = mediaDirPath;
     this.data = emptyStore();
     this.pendingSave = null;
     this.messages = new Map();
@@ -140,6 +142,8 @@ export class WhatsAppStore {
   }
 
   async load() {
+    await fs.mkdir(this.mediaDirPath, { recursive: true, mode: 0o700 });
+    await fs.chmod(this.mediaDirPath, 0o700);
     try {
       const parsed = JSON.parse(await fs.readFile(this.filePath, "utf8"));
       this.data = {
@@ -173,6 +177,7 @@ export class WhatsAppStore {
     }
     this.#pruneExpiredMessages();
     this.#trimVolatileMessages();
+    await this.#cleanupMediaFiles();
     await this.save();
   }
 
@@ -195,6 +200,7 @@ export class WhatsAppStore {
 
     this.#pruneExpiredMessages();
     this.#trimVolatileMessages();
+    await this.#cleanupMediaFiles();
     const tempMessagesFile = path.join(
       path.dirname(this.messagesFilePath),
       `.${path.basename(this.messagesFilePath)}.${process.pid}.${Date.now()}.tmp`
@@ -309,7 +315,14 @@ export class WhatsAppStore {
       pushName: message.pushName ?? null,
       timestamp,
       text: extractMessageText(message.message).slice(0, this.maxTextChars),
-      messageType: extractMessageType(message.message),
+      messageType: message.normalizedMessageType ?? extractMessageType(message.message),
+      attachments: Array.isArray(message.attachments)
+        ? message.attachments.map((attachment) => ({ ...attachment }))
+        : [],
+      structured:
+        message.structured && typeof message.structured === "object"
+          ? { ...message.structured }
+          : null,
       cachedAt: Date.now()
     };
     const messages = this.messages.get(remoteJid) ?? [];
@@ -354,6 +367,49 @@ export class WhatsAppStore {
     this.#pruneExpiredMessages();
     const messages = this.messages.get(chatId) ?? [];
     return messages.slice(-limit).map(({ cachedAt: _cachedAt, ...message }) => ({ ...message }));
+  }
+
+  getAttachment(chatId, messageId, attachmentIndex = 0) {
+    this.#pruneExpiredMessages();
+    const message = (this.messages.get(chatId) ?? []).find((item) => item.id === messageId);
+    if (!message) {
+      throw new Error("Message was not found in the temporary WhatsApp cache.");
+    }
+    const attachment = message.attachments?.[attachmentIndex];
+    if (!attachment) {
+      throw new Error("Attachment was not found on that message.");
+    }
+    return { messageId, attachmentIndex, ...attachment };
+  }
+
+  async #cleanupMediaFiles() {
+    const referenced = new Set();
+    for (const messages of this.messages.values()) {
+      for (const message of messages) {
+        for (const attachment of message.attachments ?? []) {
+          if (typeof attachment.path !== "string") continue;
+          const resolved = path.resolve(attachment.path);
+          if (path.dirname(resolved) === path.resolve(this.mediaDirPath)) {
+            referenced.add(resolved);
+          }
+        }
+      }
+    }
+    let entries;
+    try {
+      entries = await fs.readdir(this.mediaDirPath, { withFileTypes: true });
+    } catch (error) {
+      if (error?.code === "ENOENT") return;
+      throw error;
+    }
+    await Promise.all(
+      entries.map(async (entry) => {
+        const filePath = path.join(this.mediaDirPath, entry.name);
+        if (entry.isFile() && !referenced.has(path.resolve(filePath))) {
+          await fs.unlink(filePath);
+        }
+      })
+    );
   }
 
   #trimVolatileMessages() {

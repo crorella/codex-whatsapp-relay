@@ -7,10 +7,13 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"mime"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
+	"unicode"
 
 	_ "github.com/mattn/go-sqlite3"
 	"go.mau.fi/whatsmeow"
@@ -23,6 +26,7 @@ import (
 )
 
 const protocolVersion = 1
+const defaultMaxMediaBytes uint64 = 50 * 1024 * 1024
 
 type request struct {
 	ID     int64           `json:"id"`
@@ -57,6 +61,9 @@ type service struct {
 	cancel                   context.CancelFunc
 	client                   *whatsmeow.Client
 	sessionDB                string
+	mediaDir                 string
+	maxMediaBytes            uint64
+	mediaSlots               chan struct{}
 	encoder                  *json.Encoder
 	writeMu                  sync.Mutex
 	stateMu                  sync.RWMutex
@@ -104,13 +111,33 @@ func newService(sessionDB string, output io.Writer) (*service, error) {
 	}
 	client := whatsmeow.NewClient(deviceStore, waLog.Noop)
 	configureClient(client)
+	mediaDir := strings.TrimSpace(os.Getenv("WHATSAPP_MEDIA_DIR"))
+	if mediaDir == "" {
+		mediaDir = filepath.Join(filepath.Dir(filepath.Dir(sessionDB)), "media")
+	}
+	if err := hardenMediaPath(mediaDir); err != nil {
+		cancel()
+		return nil, err
+	}
+	maxMediaBytes := defaultMaxMediaBytes
+	if configured := strings.TrimSpace(os.Getenv("WHATSAPP_MAX_MEDIA_BYTES")); configured != "" {
+		parsed, parseErr := strconv.ParseUint(configured, 10, 64)
+		if parseErr != nil || parsed == 0 {
+			cancel()
+			return nil, errors.New("invalid media size limit")
+		}
+		maxMediaBytes = parsed
+	}
 
 	svc := &service{
-		ctx:       ctx,
-		cancel:    cancel,
-		client:    client,
-		sessionDB: sessionDB,
-		encoder:   json.NewEncoder(output),
+		ctx:           ctx,
+		cancel:        cancel,
+		client:        client,
+		sessionDB:     sessionDB,
+		mediaDir:      mediaDir,
+		maxMediaBytes: maxMediaBytes,
+		mediaSlots:    make(chan struct{}, 2),
+		encoder:       json.NewEncoder(output),
 		status: status{
 			Status:         "idle",
 			HasCredentials: deviceStore.ID != nil,
@@ -122,6 +149,24 @@ func newService(sessionDB string, output io.Writer) (*service, error) {
 		return nil, err
 	}
 	return svc, nil
+}
+
+func hardenMediaPath(mediaDir string) error {
+	clean := filepath.Clean(mediaDir)
+	if clean == "." || clean == string(filepath.Separator) {
+		return errors.New("unsafe media directory path")
+	}
+	if info, err := os.Lstat(clean); err == nil {
+		if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
+			return errors.New("media path must be a directory, not a symlink")
+		}
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	if err := os.MkdirAll(clean, 0o700); err != nil {
+		return err
+	}
+	return os.Chmod(clean, 0o700)
 }
 
 func configureClient(client *whatsmeow.Client) {
@@ -395,7 +440,7 @@ func (s *service) handleEvent(raw any) {
 		s.emitStatus()
 		go s.emitChats()
 	case *events.Message:
-		s.emitMessage(evt)
+		go s.emitMessage(evt)
 	case *events.LoggedOut:
 		s.stateMu.Lock()
 		s.status.Status = "logged_out"
@@ -465,9 +510,8 @@ func (s *service) emitMessage(evt *events.Message) {
 		return
 	}
 	text, messageType := extractText(evt.Message)
-	if strings.TrimSpace(text) == "" {
-		return
-	}
+	media := describeMedia(evt.Message)
+	structured := extractStructured(evt.Message)
 	chatID := evt.Info.Chat.String()
 	senderID := evt.Info.Sender.String()
 	s.emit("chat", map[string]any{
@@ -476,7 +520,7 @@ func (s *service) emitMessage(evt *events.Message) {
 		"isGroup":   evt.Info.IsGroup,
 		"timestamp": evt.Info.Timestamp.Unix(),
 	})
-	s.emit("message", map[string]any{
+	payload := map[string]any{
 		"id":          string(evt.Info.ID),
 		"chatId":      chatID,
 		"senderId":    senderID,
@@ -485,10 +529,196 @@ func (s *service) emitMessage(evt *events.Message) {
 		"timestamp":   evt.Info.Timestamp.Unix(),
 		"text":        truncateRunes(text, 16000),
 		"messageType": messageType,
-	})
+	}
+	if media != nil {
+		payload["attachments"] = []map[string]any{s.cacheMedia(string(evt.Info.ID), media)}
+	}
+	if structured != nil {
+		payload["structured"] = structured
+	}
+	s.emit("message", payload)
+}
+
+type mediaDescription struct {
+	Kind         string
+	MIMEType     string
+	OriginalName string
+	DeclaredSize uint64
+	Duration     uint32
+	PTT          bool
+	Downloadable whatsmeow.DownloadableMessage
+}
+
+func unwrapMessage(message *waE2E.Message) *waE2E.Message {
+	if message == nil {
+		return nil
+	}
+	if inner := message.GetEphemeralMessage().GetMessage(); inner != nil {
+		return unwrapMessage(inner)
+	}
+	if inner := message.GetViewOnceMessage().GetMessage(); inner != nil {
+		return unwrapMessage(inner)
+	}
+	if inner := message.GetViewOnceMessageV2().GetMessage(); inner != nil {
+		return unwrapMessage(inner)
+	}
+	if inner := message.GetDocumentWithCaptionMessage().GetMessage(); inner != nil {
+		return unwrapMessage(inner)
+	}
+	return message
+}
+
+func describeMedia(message *waE2E.Message) *mediaDescription {
+	message = unwrapMessage(message)
+	if message == nil {
+		return nil
+	}
+	if item := message.GetAudioMessage(); item != nil {
+		return &mediaDescription{Kind: "audio", MIMEType: item.GetMimetype(), DeclaredSize: item.GetFileLength(), Duration: item.GetSeconds(), PTT: item.GetPTT(), Downloadable: item}
+	}
+	if item := message.GetImageMessage(); item != nil {
+		return &mediaDescription{Kind: "image", MIMEType: item.GetMimetype(), DeclaredSize: item.GetFileLength(), Downloadable: item}
+	}
+	if item := message.GetVideoMessage(); item != nil {
+		return &mediaDescription{Kind: "video", MIMEType: item.GetMimetype(), DeclaredSize: item.GetFileLength(), Duration: item.GetSeconds(), Downloadable: item}
+	}
+	if item := message.GetDocumentMessage(); item != nil {
+		return &mediaDescription{Kind: "document", MIMEType: item.GetMimetype(), OriginalName: item.GetFileName(), DeclaredSize: item.GetFileLength(), Downloadable: item}
+	}
+	if item := message.GetStickerMessage(); item != nil {
+		return &mediaDescription{Kind: "sticker", MIMEType: item.GetMimetype(), DeclaredSize: item.GetFileLength(), Downloadable: item}
+	}
+	return nil
+}
+
+func extractStructured(message *waE2E.Message) map[string]any {
+	message = unwrapMessage(message)
+	if message == nil {
+		return nil
+	}
+	if item := message.GetLocationMessage(); item != nil {
+		return map[string]any{"kind": "location", "latitude": item.GetDegreesLatitude(), "longitude": item.GetDegreesLongitude(), "name": item.GetName(), "address": item.GetAddress()}
+	}
+	if item := message.GetLiveLocationMessage(); item != nil {
+		return map[string]any{"kind": "live_location", "latitude": item.GetDegreesLatitude(), "longitude": item.GetDegreesLongitude(), "caption": item.GetCaption()}
+	}
+	if item := message.GetContactMessage(); item != nil {
+		return map[string]any{"kind": "contact", "displayName": item.GetDisplayName(), "vcard": item.GetVcard()}
+	}
+	if item := message.GetContactsArrayMessage(); item != nil {
+		return map[string]any{"kind": "contacts", "displayName": item.GetDisplayName(), "count": len(item.GetContacts())}
+	}
+	poll := firstPoll(message)
+	if poll != nil {
+		options := make([]string, 0, len(poll.GetOptions()))
+		for _, option := range poll.GetOptions() {
+			options = append(options, option.GetOptionName())
+		}
+		return map[string]any{"kind": "poll", "name": poll.GetName(), "options": options}
+	}
+	return nil
+}
+
+func firstPoll(message *waE2E.Message) *waE2E.PollCreationMessage {
+	for _, poll := range []*waE2E.PollCreationMessage{message.GetPollCreationMessage(), message.GetPollCreationMessageV2(), message.GetPollCreationMessageV3(), message.GetPollCreationMessageV5(), message.GetPollCreationMessageV6()} {
+		if poll != nil {
+			return poll
+		}
+	}
+	return nil
+}
+
+func (s *service) cacheMedia(messageID string, media *mediaDescription) map[string]any {
+	result := map[string]any{
+		"kind": media.Kind, "mimeType": media.MIMEType, "originalFileName": media.OriginalName,
+		"declaredSize": media.DeclaredSize, "durationSeconds": media.Duration, "ptt": media.PTT,
+	}
+	if media.DeclaredSize > s.maxMediaBytes {
+		result["status"] = "too_large"
+		result["maxBytes"] = s.maxMediaBytes
+		return result
+	}
+	s.mediaSlots <- struct{}{}
+	defer func() { <-s.mediaSlots }()
+	data, err := s.client.Download(s.ctx, media.Downloadable)
+	if err != nil {
+		result["status"] = "download_failed"
+		return result
+	}
+	if uint64(len(data)) > s.maxMediaBytes {
+		result["status"] = "too_large"
+		result["size"] = len(data)
+		result["maxBytes"] = s.maxMediaBytes
+		return result
+	}
+	fileName := mediaFileName(messageID, media)
+	filePath := filepath.Join(s.mediaDir, fileName)
+	if err := writePrivateMedia(filePath, data); err != nil {
+		result["status"] = "write_failed"
+		return result
+	}
+	result["status"] = "downloaded"
+	result["size"] = len(data)
+	result["fileName"] = fileName
+	result["path"] = filePath
+	return result
+}
+
+func mediaFileName(messageID string, media *mediaDescription) string {
+	base := sanitizeFilePart(messageID)
+	if base == "" {
+		base = "message"
+	}
+	if media.OriginalName != "" {
+		original := sanitizeFilePart(filepath.Base(media.OriginalName))
+		if original != "" {
+			return base + "-" + original
+		}
+	}
+	extension := mediaExtension(media.MIMEType)
+	return base + extension
+}
+
+func sanitizeFilePart(value string) string {
+	var builder strings.Builder
+	for _, char := range value {
+		if unicode.IsLetter(char) || unicode.IsDigit(char) || char == '.' || char == '-' || char == '_' {
+			builder.WriteRune(char)
+		} else {
+			builder.WriteByte('_')
+		}
+		if builder.Len() >= 120 {
+			break
+		}
+	}
+	return strings.Trim(builder.String(), "._-")
+}
+
+func mediaExtension(mimeType string) string {
+	clean := strings.TrimSpace(strings.Split(mimeType, ";")[0])
+	if extensions, err := mime.ExtensionsByType(clean); err == nil && len(extensions) > 0 {
+		return extensions[0]
+	}
+	return map[string]string{"audio/ogg": ".ogg", "audio/opus": ".opus", "image/webp": ".webp"}[clean]
+}
+
+func writePrivateMedia(filePath string, data []byte) error {
+	file, err := os.OpenFile(filePath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
+	if err != nil {
+		return err
+	}
+	if _, err = file.Write(data); err != nil {
+		_ = file.Close()
+		return err
+	}
+	if err = file.Close(); err != nil {
+		return err
+	}
+	return os.Chmod(filePath, 0o600)
 }
 
 func extractText(message *waE2E.Message) (string, string) {
+	message = unwrapMessage(message)
 	if message == nil {
 		return "", "unknown"
 	}
@@ -507,14 +737,26 @@ func extractText(message *waE2E.Message) (string, string) {
 	if document := message.GetDocumentMessage(); document != nil {
 		return document.GetCaption(), "documentMessage"
 	}
-	if ephemeral := message.GetEphemeralMessage(); ephemeral != nil {
-		return extractText(ephemeral.GetMessage())
+	if message.GetAudioMessage() != nil {
+		return "", "audioMessage"
 	}
-	if viewOnce := message.GetViewOnceMessage(); viewOnce != nil {
-		return extractText(viewOnce.GetMessage())
+	if message.GetStickerMessage() != nil {
+		return "", "stickerMessage"
 	}
-	if viewOnce := message.GetViewOnceMessageV2(); viewOnce != nil {
-		return extractText(viewOnce.GetMessage())
+	if location := message.GetLocationMessage(); location != nil {
+		return firstNonEmpty(location.GetName(), location.GetAddress()), "locationMessage"
+	}
+	if location := message.GetLiveLocationMessage(); location != nil {
+		return location.GetCaption(), "liveLocationMessage"
+	}
+	if contact := message.GetContactMessage(); contact != nil {
+		return contact.GetDisplayName(), "contactMessage"
+	}
+	if contacts := message.GetContactsArrayMessage(); contacts != nil {
+		return contacts.GetDisplayName(), "contactsArrayMessage"
+	}
+	if poll := firstPoll(message); poll != nil {
+		return poll.GetName(), "pollCreationMessage"
 	}
 	return "", "unknown"
 }

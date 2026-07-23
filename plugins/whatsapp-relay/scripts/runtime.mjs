@@ -129,7 +129,10 @@ export class WhatsAppRuntime {
         },
         messageTimestamp: message.timestamp,
         pushName: message.pushName ?? null,
-        message: { conversation: message.text ?? "" }
+        message: { conversation: message.text ?? "" },
+        normalizedMessageType: message.messageType,
+        attachments: message.attachments,
+        structured: message.structured
       });
       this.events.emit("messages.upsert", { messages: [message] });
     });

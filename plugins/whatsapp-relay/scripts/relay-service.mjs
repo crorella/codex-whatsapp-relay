@@ -70,6 +70,19 @@ export function createRelayHandler(runtime) {
       };
     }
 
+    if (method === "get_attachment") {
+      const chatId = requireOptionalString(params.chatId, "chatId");
+      const chatName = requireOptionalString(params.chatName, "chatName");
+      const messageId = requireOptionalString(params.messageId, "messageId");
+      if (!messageId) throw new Error("messageId is required.");
+      const attachmentIndex = boundedInteger(params.attachmentIndex, 0, 0, 20);
+      const chat = resolveChatOrError(runtime.store, { chatId, chatName });
+      return {
+        chat: { id: chat.id, displayName: chat.displayName },
+        ...runtime.store.getAttachment(chat.id, messageId, attachmentIndex)
+      };
+    }
+
     if (method === "send_message") {
       const chatId = requireOptionalString(params.chatId, "chatId");
       const chatName = requireOptionalString(params.chatName, "chatName");

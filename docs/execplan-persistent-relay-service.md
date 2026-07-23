@@ -1,4 +1,4 @@
-# Keep WhatsApp Reception Alive Between Codex Requests
+# Keep WhatsApp Reception Alive and Preserve Received Media
 
 This ExecPlan is a living document. Keep `Progress`, `Surprises & Discoveries`, `Decision Log`, and `Outcomes & Retrospective` current as work proceeds.
 
@@ -15,6 +15,8 @@ After this change, the WhatsApp relay will keep one authenticated connection ali
 - [x] 2026-07-22: Added and passed unit, integration, permission, expiry, restart-persistence, and regression tests.
 - [x] 2026-07-22: Installed plugin `0.4.3-hardened.8-experimental.1` and enabled the user service without replacing WhatsApp credentials.
 - [x] 2026-07-22: Verified live saved-session reconnection and MCP access through a separate client; cross-client retention is covered by integration tests and awaits the next real inbound message for an end-to-end observation.
+- [ ] 2026-07-22: Preserve audio, images, video, documents, stickers, links, contacts, locations, and polls instead of discarding non-text events.
+- [ ] 2026-07-22: Expose private attachment paths and metadata through the existing read surface and validate a real received audio message.
 
 ## Surprises & Discoveries
 
@@ -24,12 +26,19 @@ After this change, the WhatsApp relay will keep one authenticated connection ali
 - The managed sandbox rejects Unix socket creation with `EPERM`; the same test passes outside that socket restriction. This is an execution-environment limitation, not a relay failure.
 - A second service instance could otherwise unlink the first instance's live socket. Startup now probes an existing same-user socket and refuses to replace it when active.
 - This host's user systemd manager rejects capability and mount-namespace hardening with `status=218/CAPABILITIES`. The unit therefore relies on same-user execution, `NoNewPrivileges`, `UMask=0077`, and explicit `0700`/`0600` paths instead of unsupported namespace directives.
+- The whatsmeow sidecar returned early whenever extracted text was empty. Audio and other captionless media therefore disappeared before the Node service could cache even their metadata.
 
 ## Decision Log
 
 Decision: Run exactly one persistent Node service that owns `WhatsAppRuntime` and its whatsmeow sidecar, and let MCP processes communicate with it over a Unix-domain socket.
 
 Rationale: This retains one WhatsApp connection and one bounded in-memory buffer while avoiding a TCP listener, duplicate sessions, or message bodies on disk. Unix socket permissions can restrict access to the current OS user.
+
+Date/Author: 2026-07-22 / Codex
+
+Decision: Download supported inbound media passively into the same seven-day private cache boundary and expose its exact local path and metadata only when messages are read.
+
+Rationale: The user explicitly wants Codex to inspect, transcribe, and analyze received files. Passive downloading restores that functionality without treating message content as instructions, launching tools automatically, or authorizing a reply. Files are bounded by a configurable 50 MiB per-item limit, stored in a `0700` directory as `0600`, and removed when no retained message references them.
 
 Date/Author: 2026-07-22 / Codex
 
@@ -59,7 +68,7 @@ The new relay service is a background process started as a systemd user service.
 
 Add a small JSON-lines RPC server and client under `plugins/whatsapp-relay/scripts/`. The server validates method names and arguments, calls the existing runtime and store, and returns sanitized errors. It supports status, controlled authentication, chat listing, bounded message reading, explicit text sending, and shutdown. The client opens the private socket for one request and enforces timeouts and response-size limits.
 
-Refactor the MCP server so its five existing tools use the RPC client instead of creating a runtime. Keep tool names and schemas stable. Update the terminal auth and status helpers to use the same service. Add a systemd user unit template plus an idempotent installer that resolves the installed checkout path, writes the unit under `~/.config/systemd/user/`, reloads systemd, and enables the service. Installation must not delete or rewrite the existing WhatsApp database.
+Refactor the MCP server so its existing tools use the RPC client instead of creating a runtime, then add one read-only attachment resolver. Keep the original tool names and schemas stable. Update the terminal auth and status helpers to use the same service. Add a systemd user unit template plus an idempotent installer that resolves the installed checkout path, writes the unit under `~/.config/systemd/user/`, reloads systemd, and enables the service. Installation must not delete or rewrite the existing WhatsApp database.
 
 Revise repository instructions, plugin metadata, skill text, README, and changelog to describe the singleton service and precise privacy boundary. Bump the experimental version so the installed plugin is auditable.
 
@@ -82,7 +91,7 @@ Then call MCP status/list/read through two separate client processes. The second
 
 ## Validation and Acceptance
 
-Acceptance requires all existing tests plus new tests proving: the socket directory is `0700` and socket is `0600`; malformed or oversized RPC requests fail closed; only the approved five MCP tools remain; message bodies appear only in the private expiring cache and never in service logs; a message ingested before one RPC client disconnects is readable by a later client and after a service restart; sends still require an exact chat and explicit call; and service installation is idempotent.
+Acceptance requires all existing tests plus new tests proving: the socket directory is `0700` and socket is `0600`; malformed or oversized RPC requests fail closed; the approved six MCP tools remain; message bodies appear only in the private expiring cache and never in service logs; media files are private, bounded, and garbage-collected; a message ingested before one RPC client disconnects is readable by a later client and after a service restart; sends still require an exact chat and explicit call; and service installation is idempotent.
 
 Live acceptance requires the installed service to report `connected` using the existing account with no QR flow. A response received after an MCP command exits must be returned by a later read call.
 
@@ -97,3 +106,5 @@ Baseline is commit `d9db829219dc552e68063b164cecd27ba56c8fea` on `experiment/wha
 ## Interfaces and Dependencies
 
 The service uses Node's built-in `net` module and existing `WhatsAppRuntime`; no new runtime dependency or TCP port is introduced. The RPC protocol is private JSON-lines over a Unix socket, with one request and one response per connection. systemd user services provide login-session lifecycle and restart behavior. The Go whatsmeow sidecar and SQLite credential database remain unchanged.
+
+The media extension uses whatsmeow's authenticated media download API. The sidecar emits normalized attachment metadata (`kind`, MIME type, original filename, byte size, duration/PTT where applicable, status, and local path). The Node store persists that metadata with the originating message and garbage-collects unreferenced media within the same retention boundary. Text URLs remain ordinary untrusted text; contacts, locations, and polls are normalized as structured data without automatic action.

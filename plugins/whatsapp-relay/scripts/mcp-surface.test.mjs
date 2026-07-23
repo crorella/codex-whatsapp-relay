@@ -15,6 +15,7 @@ test("MCP registers only the hardened messaging surface", () => {
 
   assert.deepEqual(names, [
     "whatsapp_auth_status",
+    "whatsapp_get_attachment",
     "whatsapp_list_chats",
     "whatsapp_read_messages",
     "whatsapp_send_message",

@@ -77,6 +77,48 @@ func TestExtractTextHandlesPlainAndWrappedMessages(t *testing.T) {
 	}
 }
 
+func TestDescribeMediaHandlesAudioAndDocuments(t *testing.T) {
+	audio := &waE2E.Message{AudioMessage: &waE2E.AudioMessage{
+		Mimetype: proto.String("audio/ogg; codecs=opus"),
+		FileLength: proto.Uint64(42),
+		Seconds: proto.Uint32(7),
+		PTT: proto.Bool(true),
+	}}
+	description := describeMedia(audio)
+	if description == nil || description.Kind != "audio" || description.DeclaredSize != 42 || description.Duration != 7 || !description.PTT {
+		t.Fatalf("unexpected audio description: %#v", description)
+	}
+
+	document := &waE2E.Message{DocumentMessage: &waE2E.DocumentMessage{
+		Mimetype: proto.String("application/pdf"),
+		FileName: proto.String("../../Quarterly report.pdf"),
+	}}
+	description = describeMedia(document)
+	if description == nil || description.Kind != "document" || description.OriginalName != "../../Quarterly report.pdf" {
+		t.Fatalf("unexpected document description: %#v", description)
+	}
+	name := mediaFileName("A/B", description)
+	if strings.Contains(name, "/") || strings.Contains(name, "..") || !strings.HasSuffix(name, "Quarterly_report.pdf") {
+		t.Fatalf("unsafe media filename: %q", name)
+	}
+}
+
+func TestWritePrivateMediaAndMediaDirectoryPermissions(t *testing.T) {
+	mediaDir := filepath.Join(t.TempDir(), "media")
+	if err := hardenMediaPath(mediaDir); err != nil {
+		t.Fatal(err)
+	}
+	filePath := filepath.Join(mediaDir, "audio.ogg")
+	if err := writePrivateMedia(filePath, []byte("audio")); err != nil {
+		t.Fatal(err)
+	}
+	dirInfo, _ := os.Stat(mediaDir)
+	fileInfo, _ := os.Stat(filePath)
+	if dirInfo.Mode().Perm() != 0o700 || fileInfo.Mode().Perm() != 0o600 {
+		t.Fatalf("unexpected media modes: dir=%o file=%o", dirInfo.Mode().Perm(), fileInfo.Mode().Perm())
+	}
+}
+
 func TestBuildTextMessageContainsNoPreviewMetadata(t *testing.T) {
 	message := buildTextMessage("See https://example.com")
 	if message.GetConversation() != "See https://example.com" {

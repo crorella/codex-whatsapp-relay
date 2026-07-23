@@ -87,3 +87,31 @@ test("relay handler rejects ambiguous sends and invalid text", async () => {
     await fs.rm(tempDir, { recursive: true, force: true });
   }
 });
+
+test("relay handler resolves an exact cached attachment without executing it", async () => {
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "whatsapp-relay-attachment-"));
+  const store = new WhatsAppStore(path.join(tempDir, "store.json"));
+  store.upsertChat({ id: "group@g.us", name: "Group" });
+  store.ingestMessage({
+    key: { id: "media-1", remoteJid: "group@g.us", fromMe: false },
+    messageTimestamp: 123,
+    normalizedMessageType: "imageMessage",
+    attachments: [
+      { kind: "image", mimeType: "image/jpeg", status: "downloaded", path: "/private/image.jpg" }
+    ],
+    message: { conversation: "caption" }
+  });
+  const handler = createRelayHandler(fakeRuntime(store));
+  try {
+    const result = await handler("get_attachment", {
+      chatId: "group@g.us",
+      messageId: "media-1"
+    });
+    assert.equal(result.attachmentIndex, 0);
+    assert.equal(result.kind, "image");
+    assert.equal(result.path, "/private/image.jpg");
+  } finally {
+    await store.save();
+    await fs.rm(tempDir, { recursive: true, force: true });
+  }
+});
