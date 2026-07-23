@@ -33,7 +33,7 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
-## [0.4.3-hardened.9-experimental.1] - 2026-07-22
+## [0.4.3-hardened.9-experimental.2] - 2026-07-22
 
 - Preserve newly received audio, images, video, documents, stickers, links,
   contacts, locations, and polls instead of discarding captionless messages.
@@ -41,6 +41,8 @@ All notable changes to this project will be documented in this file.
   limit and garbage collection tied to retained messages.
 - Add `whatsapp_get_attachment` so Codex can explicitly resolve a received
   attachment for inspection, transcription, or analysis without executing it.
+- Preserve reactions as structured emoji events and classify every other
+  protobuf message generically instead of collapsing it to `unknown`.
 
 ## [0.4.3-hardened.8-experimental.1] - 2026-07-22
 

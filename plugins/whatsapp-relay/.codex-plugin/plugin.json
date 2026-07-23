@@ -1,6 +1,6 @@
 {
   "name": "whatsapp-relay",
-  "version": "0.4.3-hardened.9-experimental.1",
+  "version": "0.4.3-hardened.9-experimental.2",
   "description": "Keep one local WhatsApp connection alive, read recent messages and received attachments from a bounded temporary cache, and send explicit text without URL previews.",
   "install_url": "https://raw.githubusercontent.com/crorella/codex-whatsapp-relay/refs/heads/main/plugins/whatsapp-relay/.codex-plugin/plugin.json",
   "author": {

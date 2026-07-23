@@ -37,7 +37,7 @@ function relayErrorMessage(error) {
 
 const server = new McpServer({
   name: "whatsapp-relay-hardened",
-  version: "0.4.3-hardened.9-experimental.1"
+  version: "0.4.3-hardened.9-experimental.2"
 });
 
 server.tool(

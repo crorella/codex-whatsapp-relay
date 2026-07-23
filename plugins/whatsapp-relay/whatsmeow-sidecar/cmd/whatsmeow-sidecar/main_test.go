@@ -79,10 +79,10 @@ func TestExtractTextHandlesPlainAndWrappedMessages(t *testing.T) {
 
 func TestDescribeMediaHandlesAudioAndDocuments(t *testing.T) {
 	audio := &waE2E.Message{AudioMessage: &waE2E.AudioMessage{
-		Mimetype: proto.String("audio/ogg; codecs=opus"),
+		Mimetype:   proto.String("audio/ogg; codecs=opus"),
 		FileLength: proto.Uint64(42),
-		Seconds: proto.Uint32(7),
-		PTT: proto.Bool(true),
+		Seconds:    proto.Uint32(7),
+		PTT:        proto.Bool(true),
 	}}
 	description := describeMedia(audio)
 	if description == nil || description.Kind != "audio" || description.DeclaredSize != 42 || description.Duration != 7 || !description.PTT {
@@ -100,6 +100,25 @@ func TestDescribeMediaHandlesAudioAndDocuments(t *testing.T) {
 	name := mediaFileName("A/B", description)
 	if strings.Contains(name, "/") || strings.Contains(name, "..") || !strings.HasSuffix(name, "Quarterly_report.pdf") {
 		t.Fatalf("unsafe media filename: %q", name)
+	}
+}
+
+func TestExtractTextAndStructuredHandleReactionsAndGenericTypes(t *testing.T) {
+	reaction := &waE2E.Message{ReactionMessage: &waE2E.ReactionMessage{
+		Text: proto.String("❤️"),
+	}}
+	text, kind := extractText(reaction)
+	if text != "❤️" || kind != "reactionMessage" {
+		t.Fatalf("reaction extraction = %q %q", text, kind)
+	}
+	structured := extractStructured(reaction)
+	if structured["kind"] != "reaction" || structured["emoji"] != "❤️" {
+		t.Fatalf("unexpected reaction metadata: %#v", structured)
+	}
+
+	protocol := &waE2E.Message{ProtocolMessage: &waE2E.ProtocolMessage{}}
+	if got := genericMessageType(protocol); got != "protocolMessage" {
+		t.Fatalf("generic type = %q, want protocolMessage", got)
 	}
 }
 

@@ -23,6 +23,7 @@ import (
 	"go.mau.fi/whatsmeow/types/events"
 	waLog "go.mau.fi/whatsmeow/util/log"
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/reflect/protoreflect"
 )
 
 const protocolVersion = 1
@@ -616,6 +617,12 @@ func extractStructured(message *waE2E.Message) map[string]any {
 		}
 		return map[string]any{"kind": "poll", "name": poll.GetName(), "options": options}
 	}
+	if item := message.GetReactionMessage(); item != nil {
+		return map[string]any{
+			"kind": "reaction", "emoji": item.GetText(), "targetMessageId": item.GetKey().GetID(),
+			"targetParticipant": item.GetKey().GetParticipant(), "removed": item.GetText() == "",
+		}
+	}
 	return nil
 }
 
@@ -758,7 +765,26 @@ func extractText(message *waE2E.Message) (string, string) {
 	if poll := firstPoll(message); poll != nil {
 		return poll.GetName(), "pollCreationMessage"
 	}
-	return "", "unknown"
+	if reaction := message.GetReactionMessage(); reaction != nil {
+		return reaction.GetText(), "reactionMessage"
+	}
+	return "", genericMessageType(message)
+}
+
+func genericMessageType(message *waE2E.Message) string {
+	message = unwrapMessage(message)
+	if message == nil {
+		return "unknown"
+	}
+	kind := "unknown"
+	message.ProtoReflect().Range(func(field protoreflect.FieldDescriptor, value protoreflect.Value) bool {
+		if field.IsList() && value.List().Len() == 0 {
+			return true
+		}
+		kind = field.JSONName()
+		return false
+	})
+	return kind
 }
 
 func (s *service) setDisconnected(label string) {
